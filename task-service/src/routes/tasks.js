@@ -22,6 +22,34 @@ async function logEvent({ level, event, userId, ip, method, path, statusCode, me
     });
   } catch (_) {}
 }
+// ── Helper: log ลง task-db ────────────────────────────────────────────
+async function logToDB({ level, event, userId, message, meta }) {
+  try {
+    await pool.query(
+      `INSERT INTO logs (level, event, user_id, message, meta) VALUES ($1,$2,$3,$4,$5)`,
+      [level, event, userId || null, message || null,
+       meta ? JSON.stringify(meta) : null]
+    );
+  } catch (e) { console.error('[task-log]', e.message); }
+}
+
+// ── Helper: ส่ง activity event (fire-and-forget) ──────────────────────
+async function logActivity({ userId, username, eventType, entityId,
+                              summary, meta }) {
+  const ACTIVITY_URL = process.env.ACTIVITY_SERVICE_URL
+    || 'http://activity-service:3003';
+  fetch(`${ACTIVITY_URL}/api/activity/internal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: userId, username, event_type: eventType,
+      entity_type: 'task', entity_id: entityId || null,
+      summary, meta: meta || null
+    })
+  }).catch(() => {
+    console.warn('[task] activity-service unreachable — skipping event log');
+  });
+}
 
 // GET /api/tasks/health (ไม่ต้อง JWT)
 router.get('/health', (_, res) => res.json({ status: 'ok', service: 'task-service' }));
@@ -70,6 +98,13 @@ router.post('/', async (req, res) => {
       method: 'POST', path: '/api/tasks', statusCode: 201,
       message: `Task created: "${title}"`, meta: { task_id: task.id, title }
     });
+    // POST /api/tasks/ — หลัง insert สำเร็จ
+logActivity({
+  userId: req.user.sub, username: req.user.username,
+  eventType: 'TASK_CREATED', entityId: task.id,
+  summary: `${req.user.username} สร้าง task "${title}"`,
+  meta: { task_id: task.id, title, priority }
+});
     res.status(201).json({ task });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -96,6 +131,14 @@ router.put('/:id', async (req, res) => {
        WHERE id = $5 RETURNING *`,
       [title, description, status, priority, id]
     );
+    if (status && status !== check.rows[0].status) {
+  logActivity({
+    userId: req.user.sub, username: req.user.username,
+    eventType: 'TASK_STATUS_CHANGED', entityId: parseInt(id),
+    summary: `${req.user.username} เปลี่ยนสถานะ task #${id} เป็น ${status}`,
+    meta: { task_id: parseInt(id), old_status: check.rows[0].status, new_status: status }
+  });
+}
     res.json({ task: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -117,6 +160,12 @@ router.delete('/:id', async (req, res) => {
       method: 'DELETE', path: `/api/tasks/${id}`, statusCode: 200,
       message: `Task ${id} deleted`
     });
+    logActivity({
+  userId: req.user.sub, username: req.user.username,
+  eventType: 'TASK_DELETED', entityId: parseInt(id),
+  summary: `${req.user.username} ลบ task #${id}`,
+  meta: { task_id: parseInt(id) }
+});
     res.json({ message: 'Task deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
