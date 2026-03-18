@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
 const { Pool } = require('pg');
+const jwt = require('jsonwebtoken');
 
 const app  = express();
 const PORT = process.env.PORT || 3003;
@@ -9,14 +10,17 @@ const PORT = process.env.PORT || 3003;
 app.use(cors());
 app.use(express.json());
 
+// ✅ รองรับ Railway (SSL)
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production'
+    ? { rejectUnauthorized: false }
+    : false
 });
 
-const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 
-// ── Middleware: JWT ทั่วไป ─────────────────────────────────────────────
+// ── Middleware: JWT ─────────────────────────
 function requireAuth(req, res, next) {
   const token = (req.headers['authorization'] || '').split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -24,22 +28,23 @@ function requireAuth(req, res, next) {
   catch (e) { res.status(401).json({ error: 'Invalid token' }); }
 }
 
-// ── Middleware: Admin only ─────────────────────────────────────────────
 function requireAdmin(req, res, next) {
   const token = (req.headers['authorization'] || '').split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const user = jwt.verify(token, JWT_SECRET);
-    if (user.role !== 'admin') return res.status(403).json({ error: 'admin only' });
-    req.user = user; next();
-  } catch (e) { res.status(401).json({ error: 'Invalid token' }); }
+    if (user.role !== 'admin')
+      return res.status(403).json({ error: 'admin only' });
+    req.user = user;
+    next();
+  } catch (e) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// POST /api/activity/internal — รับ event จาก services อื่น
-// ไม่ต้องมี JWT เพราะเรียกจาก internal Docker network
-// (บน Railway ต้อง set ACTIVITY_SERVICE_URL ให้ถูก)
-// ══════════════════════════════════════════════════════════════════════
+// ── Routes ─────────────────────────
+
+// internal
 app.post('/api/activity/internal', async (req, res) => {
   const { user_id, username, event_type, entity_type,
           entity_id, summary, meta } = req.body;
@@ -50,7 +55,7 @@ app.post('/api/activity/internal', async (req, res) => {
   try {
     await pool.query(
       `INSERT INTO activities
-         (user_id, username, event_type, entity_type, entity_id, summary, meta)
+       (user_id, username, event_type, entity_type, entity_id, summary, meta)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [user_id, username || null, event_type,
        entity_type || null, entity_id || null,
@@ -63,87 +68,62 @@ app.post('/api/activity/internal', async (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// GET /api/activity/me — ดู activities ของตัวเอง (JWT required)
-// Query params: ?event_type=TASK_CREATED&limit=50&offset=0
-// ══════════════════════════════════════════════════════════════════════
+// me
 app.get('/api/activity/me', requireAuth, async (req, res) => {
   const { event_type, limit = 50, offset = 0 } = req.query;
 
   const conditions = ['user_id = $1'];
   const values     = [req.user.sub];
-  let   idx = 2;
+  let idx = 2;
 
-  if (event_type) { conditions.push(`event_type = $${idx++}`); values.push(event_type); }
+  if (event_type) {
+    conditions.push(`event_type = $${idx++}`);
+    values.push(event_type);
+  }
 
   const where = 'WHERE ' + conditions.join(' AND ');
 
   try {
-    const countRes = await pool.query(
-      `SELECT COUNT(*) FROM activities ${where}`, values
-    );
-    const total = parseInt(countRes.rows[0].count);
-
-    values.push(parseInt(limit));
-    values.push(parseInt(offset));
     const result = await pool.query(
       `SELECT * FROM activities ${where}
        ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      values
+      [...values, limit, offset]
     );
-    res.json({ activities: result.rows, total, limit: parseInt(limit) });
+    res.json({ activities: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'DB error' });
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// GET /api/activity/all — ดู activities ทั้งหมด (admin only)
-// Query params: ?event_type=USER_LOGIN&username=alice&limit=100
-// ══════════════════════════════════════════════════════════════════════
+// all (admin)
 app.get('/api/activity/all', requireAdmin, async (req, res) => {
-  const { event_type, username, limit = 100, offset = 0 } = req.query;
-
-  const conditions = [];
-  const values     = [];
-  let   idx = 1;
-
-  if (event_type) { conditions.push(`event_type = $${idx++}`); values.push(event_type); }
-  if (username)   { conditions.push(`username = $${idx++}`);   values.push(username); }
-
-  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-
   try {
-    const countRes = await pool.query(
-      `SELECT COUNT(*) FROM activities ${where}`, values
-    );
-    const total = parseInt(countRes.rows[0].count);
-
-    values.push(parseInt(limit));
-    values.push(parseInt(offset));
     const result = await pool.query(
-      `SELECT * FROM activities ${where}
-       ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
-      values
+      `SELECT * FROM activities ORDER BY created_at DESC LIMIT 100`
     );
-    res.json({ activities: result.rows, total, limit: parseInt(limit) });
+    res.json({ activities: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'DB error' });
   }
 });
 
-// GET /api/activity/health
+// health
 app.get('/api/activity/health', (_, res) =>
   res.json({ status: 'ok', service: 'activity-service', time: new Date() })
 );
 
-// ── Start ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────
+// 🚀 START + AUTO CREATE TABLE (สำคัญสุด)
+// ─────────────────────────────────────────
 async function start() {
   let retries = 10;
+
   while (retries > 0) {
     try {
       await pool.query('SELECT 1');
-      // Fallback: สร้าง table ถ้ายังไม่มี (สำหรับ Railway ที่ init.sql อาจไม่รันอัตโนมัติ)
+      console.log('[activity] Connected DB');
+
+      // ✅ ใช้ SQL ที่คุณให้มา
       await pool.query(`
         CREATE TABLE IF NOT EXISTS activities (
           id SERIAL PRIMARY KEY,
@@ -156,20 +136,30 @@ async function start() {
           meta JSONB,
           created_at TIMESTAMP DEFAULT NOW()
         );
-        CREATE INDEX IF NOT EXISTS idx_act_user
+
+        CREATE INDEX IF NOT EXISTS idx_activities_user_id
           ON activities(user_id);
-        CREATE INDEX IF NOT EXISTS idx_act_event
+
+        CREATE INDEX IF NOT EXISTS idx_activities_event_type
           ON activities(event_type);
-        CREATE INDEX IF NOT EXISTS idx_act_time
+
+        CREATE INDEX IF NOT EXISTS idx_activities_created_at
           ON activities(created_at DESC);
       `);
+
+      console.log('[activity] Tables ready ✅');
       break;
+
     } catch (e) {
       console.log(`[activity] Waiting DB... (${retries} left)`);
       retries--;
       await new Promise(r => setTimeout(r, 3000));
     }
   }
-  app.listen(PORT, () => console.log(`[activity-service] Running on :${PORT}`));
+
+  app.listen(PORT, () =>
+    console.log(`[activity-service] Running on :${PORT}`)
+  );
 }
+
 start();
