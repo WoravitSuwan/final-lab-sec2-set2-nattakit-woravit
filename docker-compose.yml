@@ -1,10 +1,10 @@
 services:
+
   # ── Databases ──────────────────────────────────────────────────────
   auth-db:
     image: postgres:15-alpine
-    container_name: auth-db
     environment:
-      POSTGRES_DB: authdb # ใช้ชื่อตามเอกสาร Lab
+      POSTGRES_DB: authdb
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: secret123
     ports:
@@ -14,14 +14,12 @@ services:
       - ./auth-service/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d authdb"]
-      interval: 3s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 5s
 
   task-db:
     image: postgres:15-alpine
-    container_name: task-db
     environment:
       POSTGRES_DB: taskdb
       POSTGRES_USER: admin
@@ -33,14 +31,12 @@ services:
       - ./task-service/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d taskdb"]
-      interval: 3s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 5s
 
   activity-db:
     image: postgres:15-alpine
-    container_name: activity-db
     environment:
       POSTGRES_DB: activitydb
       POSTGRES_USER: admin
@@ -52,62 +48,49 @@ services:
       - ./activity-service/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d activitydb"]
-      interval: 3s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 5s
 
   # ── Services ───────────────────────────────────────────────────────
   auth-service:
     build: ./auth-service
-    container_name: auth-service
     environment:
-      - DB_HOST=auth-db
-      - DB_NAME=authdb
-      - DB_USER=admin
-      - DB_PASSWORD=secret123
-      - DB_PORT=5432
-      - DATABASE_URL=postgres://admin:secret123@auth-db:5432/authdb
-      - JWT_SECRET=${JWT_SECRET:-engse207-sec2-shared-secret-change-this}
-      - ACTIVITY_SERVICE_URL=http://activity-service:3003
-      - PORT=3001
+      DATABASE_URL:         postgres://admin:secret123@auth-db:5432/authdb
+      JWT_SECRET:           ${JWT_SECRET:-dev-shared-secret}
+      JWT_EXPIRES:          1h
+      PORT:                 3001
+      NODE_ENV:             development
+      ACTIVITY_SERVICE_URL: http://activity-service:3003
     ports:
       - "3001:3001"
     depends_on:
-      auth-db: { condition: service_healthy }
+      auth-db:      { condition: service_healthy }
+      activity-service: { condition: service_started }
     restart: unless-stopped
 
   task-service:
     build: ./task-service
-    container_name: task-service
     environment:
-      - DB_HOST=task-db
-      - DB_NAME=taskdb
-      - DB_USER=admin
-      - DB_PASSWORD=secret123
-      - DB_PORT=5432
-      - DATABASE_URL=postgres://admin:secret123@task-db:5432/taskdb
-      - JWT_SECRET=${JWT_SECRET:-engse207-sec2-shared-secret-change-this}
-      - ACTIVITY_SERVICE_URL=http://activity-service:3003
-      - PORT=3002
+      DATABASE_URL:         postgres://admin:secret123@task-db:5432/taskdb
+      JWT_SECRET:           ${JWT_SECRET:-dev-shared-secret}
+      PORT:                 3002
+      NODE_ENV:             development
+      ACTIVITY_SERVICE_URL: http://activity-service:3003
     ports:
       - "3002:3002"
     depends_on:
-      task-db: { condition: service_healthy }
+      task-db:          { condition: service_healthy }
+      activity-service: { condition: service_started }
     restart: unless-stopped
 
   activity-service:
     build: ./activity-service
-    container_name: activity-service
     environment:
-      - DB_HOST=activity-db
-      - DB_NAME=activitydb
-      - DB_USER=admin
-      - DB_PASSWORD=secret123
-      - DB_PORT=5432
-      - DATABASE_URL=postgres://admin:secret123@activity-db:5432/activitydb
-      - JWT_SECRET=${JWT_SECRET:-engse207-sec2-shared-secret-change-this}
-      - PORT=3003
+      DATABASE_URL: postgres://admin:secret123@activity-db:5432/activitydb
+      JWT_SECRET:   ${JWT_SECRET:-dev-shared-secret}
+      PORT:         3003
+      NODE_ENV:     development
     ports:
       - "3003:3003"
     depends_on:
