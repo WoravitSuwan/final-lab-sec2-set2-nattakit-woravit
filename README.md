@@ -148,6 +148,19 @@ final-lab-sec2-set2-[student1]-[student2]/
 │   └── config.js                   
 │
 └── screenshots/
+├── 01_railway_dashboard.png         
+├── 02_auth_register_cloud.png       
+├── 03_auth_login_cloud.png           
+├── 04_auth_me_cloud.png             
+├── 05_activity_me_user_events.png   
+├── 06_activity_task_created.png     
+├── 07_activity_status_changed.png    
+├── 08_task_list_cloud.png           
+├── 09_protected_401.png             
+├── 10_member_activity_all_403.png    
+├── 11_admin_activity_all_200.png    
+├── 12_readme_architecture.png        
+
 ```
 
 ---
