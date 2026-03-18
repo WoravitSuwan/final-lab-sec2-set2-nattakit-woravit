@@ -1,4 +1,3 @@
-const fetch = require('node-fetch');
 const express     = require('express');
 const { pool }    = require('../db/db');
 const requireAuth = require('../middleware/authMiddleware');
