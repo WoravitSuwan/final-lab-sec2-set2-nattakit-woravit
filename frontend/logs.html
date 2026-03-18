@@ -125,7 +125,8 @@
 </div>
 
 <script>
-const API = '';
+  import('./config.js');
+ API = window.APP_CONFIG.ACTIVITY_URL; // ใช้ ACTIVITY_URL เป็นฐานสำหรับเรียก API ทั้งหมด
 let token = localStorage.getItem('jwt_token');
 let autoRefresh = true;
 let refreshTimer = null;
