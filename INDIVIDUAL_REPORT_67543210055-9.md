@@ -43,3 +43,7 @@ Backend & API Development
 - **Stateless Authentication:** เข้าใจกลไกของ JWT ในการเป็นบัตรผ่านที่เก็บข้อมูลสิทธิ์ไว้ในตัว (Self-contained) ทำให้ Server ไม่ต้องแบกรับภาระในการจำสถานะการ Login (State) ซึ่งเหมาะสมมากกับระบบที่เป็น Microservices
 - **HTTPS Termination:** ได้ลงมือตั้งค่า Nginx ให้ทำหน้าที่เป็นจุดรับส่งข้อมูลที่ปลอดภัย (Reverse Proxy & SSL Termination) และเรียนรู้การทำ TLS Hardening เบื้องต้น
 - **Access Control Logic:** ได้ฝึกการเขียน Middleware เพื่อควบคุมสิทธิ์เข้าถึงข้อมูล (Authorization) โดยใช้ Role เป็นตัวกำหนด ซึ่งเป็นรากฐานสำคัญของระบบ Enterprise Application
+
+
+## INDIVIDUAL_REPORT_67543210064-1
+[Woravit_INDIVIDUAL_REPORT_67543210064-1](INDIVIDUAL_REPORT_67543210064-1.md)
