@@ -586,16 +586,18 @@
 ════════════════════════════════════ -->
 <script>
 /* ─────────────────────────────────────
-   STATE & CONFIG
+   CONFIG (🔥 แก้ตรงนี้สำคัญสุด)
 ───────────────────────────────────── */
-const API = '';           // relative URL — Nginx จัดการ HTTPS
+const AUTH_API = 'https://auth-service-production-f062.up.railway.app';
+const TASK_API = 'https://task-service-production-557c.up.railway.app';
+
 let currentUser   = null;
 let token         = localStorage.getItem('jwt_token');
 let allTasks      = [];
 let currentFilter = 'ALL';
 
 /* ─────────────────────────────────────
-   AUTH HEADERS
+   HEADERS
 ───────────────────────────────────── */
 function authHeaders() {
   return {
@@ -616,7 +618,7 @@ function toast(msg, type = 'info', duration = 3000) {
 }
 
 /* ─────────────────────────────────────
-   AUTH — LOGIN ONLY (ลบ doRegister ออก)
+   LOGIN
 ───────────────────────────────────── */
 function showAuthMsg(msg, type) {
   const el = document.getElementById('auth-msg');
@@ -625,400 +627,142 @@ function showAuthMsg(msg, type) {
 }
 
 async function doLogin() {
-  const email    = document.getElementById('login-email').value.trim();
+  const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
-  if (!email || !password) { showAuthMsg('กรุณากรอกข้อมูลให้ครบ', 'error'); return; }
 
-  const btn = document.querySelector('#login-form .btn-primary');
-  btn.innerHTML = '<span class="spinner"></span> กำลังเข้าสู่ระบบ...';
-  btn.disabled  = true;
+  if (!email || !password) {
+    showAuthMsg('กรุณากรอกข้อมูลให้ครบ', 'error');
+    return;
+  }
 
   try {
-    const res  = await fetch(`${API}/api/auth/login`, {
+    const res = await fetch(`${AUTH_API}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
-    const data = await res.json();
 
-    btn.textContent = 'เข้าสู่ระบบ';
-    btn.disabled    = false;
+    const data = await res.json();
 
     if (res.ok) {
       token = data.token;
       localStorage.setItem('jwt_token', token);
       initApp(data.user);
     } else {
-      showAuthMsg('❌ ' + (data.error || 'Login ล้มเหลว'), 'error');
+      showAuthMsg(data.error || 'Login ไม่สำเร็จ', 'error');
     }
-  } catch (err) {
-    btn.textContent = 'เข้าสู่ระบบ';
-    btn.disabled    = false;
-    showAuthMsg('❌ ไม่สามารถเชื่อมต่อ Server ได้', 'error');
+  } catch {
+    showAuthMsg('เชื่อมต่อ server ไม่ได้', 'error');
   }
 }
 
 function doLogout() {
   localStorage.removeItem('jwt_token');
-  token = null; currentUser = null; allTasks = [];
-  document.getElementById('app-page').classList.add('hidden');
-  document.getElementById('auth-page').classList.remove('hidden');
+  location.reload();
 }
 
 /* ─────────────────────────────────────
-   APP INIT
+   INIT
 ───────────────────────────────────── */
 function initApp(user) {
   currentUser = user;
+
   document.getElementById('auth-page').classList.add('hidden');
   document.getElementById('app-page').classList.remove('hidden');
 
-  // Sidebar user info
-  const initials = (user.username || user.email || '?').charAt(0).toUpperCase();
-  document.getElementById('sidebar-avatar').textContent = initials;
-  document.getElementById('sidebar-name').textContent   = user.username || user.email;
+  document.getElementById('sidebar-name').textContent = user.username || user.email;
+  document.getElementById('sidebar-avatar').textContent =
+    (user.username || user.email)[0].toUpperCase();
 
   const rb = document.getElementById('sidebar-role-badge');
   rb.textContent = user.role;
-  rb.className   = `role-badge role-${user.role}`;
+  rb.className = `role-badge role-${user.role}`;
 
-  showPage('tasks');
+  loadTasks();
 }
 
 /* ─────────────────────────────────────
-   NAVIGATION (tasks + profile เท่านั้น)
-───────────────────────────────────── */
-function showPage(page) {
-  ['tasks', 'profile'].forEach(p => {
-    document.getElementById(`page-${p}`).classList.toggle('hidden', p !== page);
-    const btn = document.querySelector(`[data-page="${p}"]`);
-    if (btn) btn.classList.toggle('active', p === page);
-  });
-
-  if (page === 'tasks')   loadTasks();
-  if (page === 'profile') loadProfile();
-}
-
-/* ─────────────────────────────────────
-   TASKS — LOAD & RENDER
+   TASKS
 ───────────────────────────────────── */
 async function loadTasks() {
   try {
-    const res  = await fetch(`${API}/api/tasks/`, { headers: authHeaders() });
+    const res = await fetch(`${TASK_API}/api/tasks`, {
+      headers: authHeaders()
+    });
+
     const data = await res.json();
 
-    if (!res.ok) {
-      if (res.status === 401) {
-        toast('Session หมดอายุ กรุณา Login ใหม่', 'error');
-        doLogout();
-      }
-      return;
-    }
+    if (!res.ok) throw new Error();
 
     allTasks = data.tasks || [];
-    updateStats();
     renderTasks();
+
     document.getElementById('task-count').textContent = allTasks.length;
-  } catch (err) {
-    toast('❌ โหลด Tasks ไม่สำเร็จ', 'error');
+
+  } catch {
+    toast('โหลด tasks ไม่ได้', 'error');
   }
-}
-
-function updateStats() {
-  const todo   = allTasks.filter(t => t.status === 'TODO').length;
-  const inprog = allTasks.filter(t => t.status === 'IN_PROGRESS').length;
-  const done   = allTasks.filter(t => t.status === 'DONE').length;
-  document.getElementById('st-total').textContent  = allTasks.length;
-  document.getElementById('st-todo').textContent   = todo;
-  document.getElementById('st-inprog').textContent = inprog;
-  document.getElementById('st-done').textContent   = done;
-}
-
-function setFilter(f) {
-  currentFilter = f;
-  document.querySelectorAll('.filter-btn').forEach(b => {
-    b.classList.toggle('active',
-      (f === 'ALL' && b.textContent === 'ทั้งหมด') ||
-      b.textContent === f ||
-      (f === 'IN_PROGRESS' && b.textContent === 'In Progress')
-    );
-  });
-  renderTasks();
 }
 
 function renderTasks() {
-  const tasks = currentFilter === 'ALL'
-    ? allTasks
-    : allTasks.filter(t => t.status === currentFilter);
-
   const list = document.getElementById('task-list');
-  if (tasks.length === 0) {
-    list.innerHTML = `<div class="empty-state"><div class="emoji">📭</div><p>ไม่มี Task ในหมวดนี้</p></div>`;
+
+  if (allTasks.length === 0) {
+    list.innerHTML = `<div class="empty-state">ไม่มี task</div>`;
     return;
   }
 
-  const priorityIcon = { low: '🟢', medium: '🟡', high: '🔴' };
-  const statusChip   = {
-    TODO:        '<span class="chip chip-todo">⬜ TODO</span>',
-    IN_PROGRESS: '<span class="chip chip-inprogress">🔄 In Progress</span>',
-    DONE:        '<span class="chip chip-done">✅ Done</span>',
-  };
-
-  list.innerHTML = tasks.map(t => `
-    <div class="task-card status-${t.status}" id="task-${t.id}">
-      <div class="task-header">
-        <div class="title ${t.status === 'DONE' ? 'done' : ''}">${escHtml(t.title)}</div>
-        <div class="task-actions">
-          <button class="btn-icon edit"   onclick="openEditModal(${t.id})"   title="แก้ไข">✏️</button>
-          <button class="btn-icon delete" onclick="confirmDelete(${t.id})" title="ลบ">🗑️</button>
-        </div>
-      </div>
-      ${t.description ? `<div class="task-desc">${escHtml(t.description)}</div>` : ''}
-      <div class="task-meta">
-        ${statusChip[t.status] || ''}
-        <span class="chip chip-${t.priority}">${priorityIcon[t.priority] || '·'} ${t.priority}</span>
-        <span class="chip chip-owner">👤 ${escHtml(t.username || '?')}</span>
-        <select class="status-select" onchange="quickStatusUpdate(${t.id}, this.value)">
-          <option value="TODO"        ${t.status === 'TODO'        ? 'selected' : ''}>⬜ TODO</option>
-          <option value="IN_PROGRESS" ${t.status === 'IN_PROGRESS' ? 'selected' : ''}>🔄 In Progress</option>
-          <option value="DONE"        ${t.status === 'DONE'        ? 'selected' : ''}>✅ Done</option>
-        </select>
-      </div>
+  list.innerHTML = allTasks.map(t => `
+    <div class="task-card">
+      <b>${t.title}</b><br>
+      <small>${t.status} | ${t.priority}</small>
     </div>
   `).join('');
 }
 
 /* ─────────────────────────────────────
-   TASKS — CREATE / EDIT / DELETE
+   CREATE TASK
 ───────────────────────────────────── */
-function openCreateModal() {
-  document.getElementById('modal-title').textContent    = '➕ สร้าง Task ใหม่';
-  document.getElementById('modal-task-id').value        = '';
-  document.getElementById('modal-task-title').value     = '';
-  document.getElementById('modal-task-desc').value      = '';
-  document.getElementById('modal-task-status').value    = 'TODO';
-  document.getElementById('modal-task-priority').value  = 'medium';
-  document.getElementById('modal-submit-btn').textContent = '💾 สร้าง Task';
-  document.getElementById('task-modal').classList.remove('hidden');
-  document.getElementById('modal-task-title').focus();
-}
-
-function openEditModal(id) {
-  const t = allTasks.find(x => x.id === id);
-  if (!t) return;
-  document.getElementById('modal-title').textContent    = '✏️ แก้ไข Task';
-  document.getElementById('modal-task-id').value        = t.id;
-  document.getElementById('modal-task-title').value     = t.title;
-  document.getElementById('modal-task-desc').value      = t.description || '';
-  document.getElementById('modal-task-status').value    = t.status;
-  document.getElementById('modal-task-priority').value  = t.priority;
-  document.getElementById('modal-submit-btn').textContent = '💾 อัปเดต';
-  document.getElementById('task-modal').classList.remove('hidden');
-}
-
-function closeModal() {
-  document.getElementById('task-modal').classList.add('hidden');
-}
-
 async function submitTask() {
-  const id    = document.getElementById('modal-task-id').value;
-  const title = document.getElementById('modal-task-title').value.trim();
-  if (!title) { toast('กรุณาใส่ชื่อ Task', 'error'); return; }
+  const title = document.getElementById('modal-task-title').value;
 
-  const body = {
-    title,
-    description: document.getElementById('modal-task-desc').value,
-    status:      document.getElementById('modal-task-status').value,
-    priority:    document.getElementById('modal-task-priority').value,
-  };
-
-  const btn = document.getElementById('modal-submit-btn');
-  btn.innerHTML = '<span class="spinner"></span>';
-  btn.disabled  = true;
-
-  try {
-    let res;
-    if (id) {
-      res = await fetch(`${API}/api/tasks/${id}`, {
-        method: 'PUT', headers: authHeaders(), body: JSON.stringify(body)
-      });
-    } else {
-      res = await fetch(`${API}/api/tasks/`, {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify(body)
-      });
-    }
-
-    btn.disabled    = false;
-    btn.textContent = id ? '💾 อัปเดต' : '💾 สร้าง Task';
-
-    if (res.ok) {
-      toast(id ? '✅ อัปเดต Task แล้ว' : '✅ สร้าง Task แล้ว', 'success');
-      closeModal();
-      loadTasks();
-    } else {
-      const data = await res.json();
-      if (res.status === 403) toast('🚫 403 Forbidden: ไม่มีสิทธิ์แก้ไข Task นี้', 'error', 4000);
-      else toast('❌ ' + (data.error || 'เกิดข้อผิดพลาด'), 'error');
-    }
-  } catch (err) {
-    btn.disabled    = false;
-    btn.textContent = id ? '💾 อัปเดต' : '💾 สร้าง Task';
-    toast('❌ ไม่สามารถเชื่อมต่อ Server ได้', 'error');
+  if (!title) {
+    toast('ใส่ title ด้วย', 'error');
+    return;
   }
-}
 
-async function quickStatusUpdate(id, newStatus) {
   try {
-    const res = await fetch(`${API}/api/tasks/${id}`, {
-      method: 'PUT', headers: authHeaders(),
-      body: JSON.stringify({ status: newStatus })
+    const res = await fetch(`${TASK_API}/api/tasks`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ title })
     });
+
     if (res.ok) {
-      toast(`🔄 เปลี่ยนสถานะเป็น ${newStatus}`, 'success', 2000);
+      toast('สร้างสำเร็จ', 'success');
       loadTasks();
+      closeModal();
     } else {
-      const data = await res.json();
-      if (res.status === 403) toast('🚫 403 Forbidden', 'error');
-      else toast('❌ ' + (data.error || 'Error'), 'error');
-      loadTasks(); // reset select
+      toast('สร้างไม่ได้', 'error');
     }
-  } catch (err) {
-    toast('❌ ไม่สามารถเชื่อมต่อ Server ได้', 'error');
-    loadTasks();
-  }
-}
 
-let deleteTargetId = null;
-function confirmDelete(id) {
-  deleteTargetId = id;
-  document.getElementById('confirm-modal').classList.remove('hidden');
-  document.getElementById('confirm-delete-btn').onclick = async () => {
-    try {
-      const res = await fetch(`${API}/api/tasks/${deleteTargetId}`, {
-        method: 'DELETE', headers: authHeaders()
-      });
-      if (res.ok) {
-        toast('🗑️ ลบ Task แล้ว', 'info');
-        closeConfirm();
-        loadTasks();
-      } else {
-        const data = await res.json();
-        if (res.status === 403) toast('🚫 403 Forbidden: ลบ Task ของคนอื่นไม่ได้', 'error', 4000);
-        else toast('❌ ' + (data.error || 'Error'), 'error');
-        closeConfirm();
-      }
-    } catch (err) {
-      toast('❌ ไม่สามารถเชื่อมต่อ Server ได้', 'error');
-      closeConfirm();
-    }
-  };
-}
-
-function closeConfirm() {
-  document.getElementById('confirm-modal').classList.add('hidden');
-  deleteTargetId = null;
-}
-
-/* ─────────────────────────────────────
-   PROFILE
-───────────────────────────────────── */
-async function loadProfile() {
-  try {
-    const res  = await fetch(`${API}/api/auth/me`, { headers: authHeaders() });
-    const data = await res.json();
-    const u    = data.user || currentUser;
-    if (!u) return;
-
-    const initial = (u.username || u.email || '?').charAt(0).toUpperCase();
-    document.getElementById('prof-avatar').textContent  = initial;
-    document.getElementById('prof-name').textContent    = u.username || '—';
-    document.getElementById('prof-email').textContent   = u.email;
-    document.getElementById('prof-id').textContent      = u.id || '—';
-    document.getElementById('prof-role').textContent    = u.role;
-    document.getElementById('prof-created').textContent =
-      u.created_at ? new Date(u.created_at).toLocaleDateString('th-TH') : '—';
-
-    const rb = document.getElementById('prof-role-badge');
-    rb.textContent = u.role;
-    rb.className   = `role-badge role-${u.role}`;
-
-    renderJwtInspector();
-  } catch (err) {
-    toast('❌ โหลด Profile ไม่สำเร็จ', 'error');
+  } catch {
+    toast('server error', 'error');
   }
 }
 
 /* ─────────────────────────────────────
-   JWT INSPECTOR
-───────────────────────────────────── */
-function renderJwtInspector() {
-  if (!token) return;
-  const parts = token.split('.');
-  if (parts.length !== 3) return;
-
-  document.getElementById('jwt-parts').innerHTML = `
-    <span class="jwt-part jwt-header-part"  title="Header">${parts[0]}</span>
-    <span style="color:var(--muted)">.</span>
-    <span class="jwt-part jwt-payload-part" title="Payload">${parts[1]}</span>
-    <span style="color:var(--muted)">.</span>
-    <span class="jwt-part jwt-sig-part"     title="Signature">${parts[2]}</span>
-  `;
-
-  try {
-    const payload = JSON.parse(atob(parts[1]));
-    const expDate = new Date(payload.exp * 1000);
-    const msLeft  = expDate - Date.now();
-    const minLeft = Math.round(msLeft / 60000);
-    const isExp   = msLeft < 0;
-
-    document.getElementById('jwt-decoded').innerHTML = `
-      <p style="font-size:.78rem;color:var(--muted);margin-bottom:.4rem">🟣 Payload (decoded — ใครก็อ่านได้!):</p>
-      <pre>${JSON.stringify(payload, null, 2)}</pre>
-    `;
-    document.getElementById('token-exp').innerHTML = isExp
-      ? `<span class="exp-bad">⚠️ Token หมดอายุแล้ว!</span>`
-      : `<span class="exp-ok">✅ Token ยังใช้ได้ — หมดอายุใน ${minLeft} นาที (${expDate.toLocaleTimeString('th-TH')})</span>`;
-  } catch (e) {
-    document.getElementById('jwt-decoded').innerHTML = '<p style="color:var(--red)">ไม่สามารถ decode ได้</p>';
-  }
-}
-
-/* ─────────────────────────────────────
-   UTILS
-───────────────────────────────────── */
-function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-// Close modals on overlay click
-document.getElementById('task-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeModal();
-});
-document.getElementById('confirm-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) closeConfirm();
-});
-
-/* ─────────────────────────────────────
-   AUTO-LOGIN ON PAGE LOAD
+   AUTO LOGIN
 ───────────────────────────────────── */
 if (token) {
-  (async () => {
-    try {
-      const res  = await fetch(`${API}/api/auth/verify`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.valid) {
-        initApp(data.user);
-      } else {
-        localStorage.removeItem('jwt_token');
-        token = null;
-      }
-    } catch (err) {
-      localStorage.removeItem('jwt_token');
-      token = null;
-    }
-  })();
+  fetch(`${AUTH_API}/api/auth/verify`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.valid) initApp(d.user);
+    else localStorage.removeItem('jwt_token');
+  });
 }
 </script>
 </body>

@@ -1,10 +1,10 @@
 require('dotenv').config();
 const express = require('express');
-const cors    = require('cors');
+const cors = require('cors');
 const { pool } = require('./db/db');
 const tasksRouter = require('./routes/tasks');
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3002;
 
 app.use(cors());
@@ -13,14 +13,13 @@ app.use('/api/tasks', tasksRouter);
 
 async function start() {
   let retries = 10;
-
   while (retries > 0) {
     try {
-      // ตรวจสอบการเชื่อมต่อ
       await pool.query('SELECT 1');
+      console.log('✅ [task-db] Connected.');
 
-      // 🔥 Fallback: สร้าง tables ถ้ายังไม่มี (รองรับทั้ง Local และ Railway)
-      await pool.query(`
+      // Fallback Query: CREATE TABLE IF NOT EXISTS
+      const initSql = `
         CREATE TABLE IF NOT EXISTS tasks (
           id          SERIAL PRIMARY KEY,
           user_id     INTEGER      NOT NULL,
@@ -41,20 +40,21 @@ async function start() {
           meta       JSONB,
           created_at TIMESTAMP    DEFAULT NOW()
         );
-      `);
-
-      console.log('[task-service] DB ready ✅');
+      `;
+      await pool.query(initSql);
+      console.log('✅ [task-db] Schema initialized.');
       break;
-
-    } catch (err) {
-      console.log(`[task-service] Waiting DB... (${retries} left) - Error: ${err.message}`);
+    } catch (e) {
+      console.error(`❌ [task] DB initialization failed: ${e.message}`);
       retries--;
-      // รอ 3 วินาทีก่อนลองใหม่
+      console.log(`[task] Retrying in 3 seconds... (${retries} left)`);
       await new Promise(r => setTimeout(r, 3000));
+      if (retries === 0) {
+        console.error('💥 Could not connect to Database. Exiting...');
+        process.exit(1);
+      }
     }
   }
-
   app.listen(PORT, () => console.log(`[task-service] Running on :${PORT}`));
 }
-
 start();
