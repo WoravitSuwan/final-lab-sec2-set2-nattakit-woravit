@@ -2,7 +2,7 @@ const { verifyToken } = require('./jwtUtils');
 
 module.exports = function requireAuth(req, res, next) {
   const header = req.headers['authorization'] || '';
-  const token  = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
 
   if (!token)
     return res.status(401).json({ error: 'Unauthorized: No token provided' });
@@ -21,7 +21,7 @@ module.exports = function requireAuth(req, res, next) {
         message: 'Invalid JWT: ' + err.message,
         meta: { error: err.message }
       })
-    }).catch(() => {});
+    }).catch(() => { });
     return res.status(401).json({ error: 'Unauthorized: ' + err.message });
   }
 };

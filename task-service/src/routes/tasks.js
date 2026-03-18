@@ -4,24 +4,6 @@ const requireAuth = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// Helper: ส่ง log ไปที่ Log Service
-async function logEvent({ level, event, userId, ip, method, path, statusCode, message, meta }) {
-  try {
-    await fetch('http://log-service:3003/api/logs/internal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        service: 'task-service',
-        level, event,
-        user_id:    userId    || null,
-        ip_address: ip        || null,
-        method, path,
-        status_code: statusCode || null,
-        message, meta
-      })
-    });
-  } catch (_) {}
-}
 // ── Helper: log ลง task-db ────────────────────────────────────────────
 async function logToDB({ level, event, userId, message, meta }) {
   try {
@@ -63,20 +45,19 @@ router.get('/', async (req, res) => {
     let result;
     if (req.user.role === 'admin') {
       result = await pool.query(
-        `SELECT t.*, u.username FROM tasks t
-         JOIN users u ON t.user_id = u.id
-         ORDER BY t.created_at DESC`
+        `SELECT * FROM tasks ORDER BY created_at DESC`
       );
     } else {
       result = await pool.query(
-        `SELECT t.*, u.username FROM tasks t
-         JOIN users u ON t.user_id = u.id
-         WHERE t.user_id = $1 ORDER BY t.created_at DESC`,
+        `SELECT * FROM tasks WHERE user_id = $1 ORDER BY created_at DESC`,
         [req.user.sub]
       );
+      // Add username manually for the current user's tasks
+      result.rows = result.rows.map(t => ({ ...t, username: req.user.username }));
     }
     res.json({ tasks: result.rows, count: result.rowCount });
   } catch (err) {
+    console.error('[task] GET / error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -93,18 +74,16 @@ router.post('/', async (req, res) => {
       [req.user.sub, title, description, status, priority]
     );
     const task = result.rows[0];
-    await logEvent({
+    await logToDB({
       level: 'INFO', event: 'TASK_CREATED', userId: req.user.sub,
-      method: 'POST', path: '/api/tasks', statusCode: 201,
       message: `Task created: "${title}"`, meta: { task_id: task.id, title }
     });
-    // POST /api/tasks/ — หลัง insert สำเร็จ
-logActivity({
-  userId: req.user.sub, username: req.user.username,
-  eventType: 'TASK_CREATED', entityId: task.id,
-  summary: `${req.user.username} สร้าง task "${title}"`,
-  meta: { task_id: task.id, title, priority }
-});
+    logActivity({
+      userId: req.user.sub, username: req.user.username,
+      eventType: 'TASK_CREATED', entityId: task.id,
+      summary: `${req.user.username} สร้าง task "${title}"`,
+      meta: { task_id: task.id, title, priority }
+    });
     res.status(201).json({ task });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -132,13 +111,13 @@ router.put('/:id', async (req, res) => {
       [title, description, status, priority, id]
     );
     if (status && status !== check.rows[0].status) {
-  logActivity({
-    userId: req.user.sub, username: req.user.username,
-    eventType: 'TASK_STATUS_CHANGED', entityId: parseInt(id),
-    summary: `${req.user.username} เปลี่ยนสถานะ task #${id} เป็น ${status}`,
-    meta: { task_id: parseInt(id), old_status: check.rows[0].status, new_status: status }
-  });
-}
+      logActivity({
+        userId: req.user.sub, username: req.user.username,
+        eventType: 'TASK_STATUS_CHANGED', entityId: parseInt(id),
+        summary: `${req.user.username} เปลี่ยนสถานะ task #${id} เป็น ${status}`,
+        meta: { task_id: parseInt(id), old_status: check.rows[0].status, new_status: status }
+      });
+    }
     res.json({ task: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -155,17 +134,16 @@ router.delete('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
 
     await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
-    await logEvent({
+    await logToDB({
       level: 'INFO', event: 'TASK_DELETED', userId: req.user.sub,
-      method: 'DELETE', path: `/api/tasks/${id}`, statusCode: 200,
       message: `Task ${id} deleted`
     });
     logActivity({
-  userId: req.user.sub, username: req.user.username,
-  eventType: 'TASK_DELETED', entityId: parseInt(id),
-  summary: `${req.user.username} ลบ task #${id}`,
-  meta: { task_id: parseInt(id) }
-});
+      userId: req.user.sub, username: req.user.username,
+      eventType: 'TASK_DELETED', entityId: parseInt(id),
+      summary: `${req.user.username} ลบ task #${id}`,
+      meta: { task_id: parseInt(id) }
+    });
     res.json({ message: 'Task deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
